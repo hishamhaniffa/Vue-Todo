@@ -1,0 +1,11 @@
+//@import "node_modules/bootstrap-sass/assets/stylesheets/bootstrap";
+
+@import "bootstrap-lumen.scss";
+
+li.completed{
+  text-decoration: line-through;
+}
+
+.margin-right-10 {
+  margin-right: 10px;
+}
