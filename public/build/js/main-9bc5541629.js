@@ -11852,30 +11852,706 @@ setTimeout(function () {
 module.exports = Vue;
 }).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
 },{"_process":1}],5:[function(require,module,exports){
+/*!
+ * Vuex v1.0.0-rc.2
+ * (c) 2016 Evan You
+ * Released under the MIT License.
+ */
+(function (global, factory) {
+  typeof exports === 'object' && typeof module !== 'undefined' ? module.exports = factory() :
+  typeof define === 'function' && define.amd ? define(factory) :
+  (global.Vuex = factory());
+}(this, function () { 'use strict';
+
+  var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) {
+    return typeof obj;
+  } : function (obj) {
+    return obj && typeof Symbol === "function" && obj.constructor === Symbol ? "symbol" : typeof obj;
+  };
+
+  var classCallCheck = function (instance, Constructor) {
+    if (!(instance instanceof Constructor)) {
+      throw new TypeError("Cannot call a class as a function");
+    }
+  };
+
+  var createClass = function () {
+    function defineProperties(target, props) {
+      for (var i = 0; i < props.length; i++) {
+        var descriptor = props[i];
+        descriptor.enumerable = descriptor.enumerable || false;
+        descriptor.configurable = true;
+        if ("value" in descriptor) descriptor.writable = true;
+        Object.defineProperty(target, descriptor.key, descriptor);
+      }
+    }
+
+    return function (Constructor, protoProps, staticProps) {
+      if (protoProps) defineProperties(Constructor.prototype, protoProps);
+      if (staticProps) defineProperties(Constructor, staticProps);
+      return Constructor;
+    };
+  }();
+
+  var toConsumableArray = function (arr) {
+    if (Array.isArray(arr)) {
+      for (var i = 0, arr2 = Array(arr.length); i < arr.length; i++) arr2[i] = arr[i];
+
+      return arr2;
+    } else {
+      return Array.from(arr);
+    }
+  };
+
+  /**
+   * Merge an array of objects into one.
+   *
+   * @param {Array<Object>} arr
+   * @return {Object}
+   */
+
+  function mergeObjects(arr) {
+    return arr.reduce(function (prev, obj) {
+      Object.keys(obj).forEach(function (key) {
+        var existing = prev[key];
+        if (existing) {
+          // allow multiple mutation objects to contain duplicate
+          // handlers for the same mutation type
+          if (Array.isArray(existing)) {
+            prev[key] = existing.concat(obj[key]);
+          } else {
+            prev[key] = [existing].concat(obj[key]);
+          }
+        } else {
+          prev[key] = obj[key];
+        }
+      });
+      return prev;
+    }, {});
+  }
+
+  /**
+   * Check whether the given value is Object or not
+   *
+   * @param {*} obj
+   * @return {Boolean}
+   */
+
+  function isObject(obj) {
+    return obj !== null && (typeof obj === 'undefined' ? 'undefined' : _typeof(obj)) === 'object';
+  }
+
+  /**
+   * Get state sub tree by given keys.
+   *
+   * @param {Object} state
+   * @param {Array<String>} nestedKeys
+   * @return {Object}
+   */
+  function getNestedState(state, nestedKeys) {
+    return nestedKeys.reduce(function (state, key) {
+      return state[key];
+    }, state);
+  }
+
+  /**
+   * Hacks to get access to Vue internals.
+   * Maybe we should expose these...
+   */
+
+  var Watcher = void 0;
+  function getWatcher(vm) {
+    if (!Watcher) {
+      var noop = function noop() {};
+      var unwatch = vm.$watch(noop, noop);
+      Watcher = vm._watchers[0].constructor;
+      unwatch();
+    }
+    return Watcher;
+  }
+
+  var Dep = void 0;
+  function getDep(vm) {
+    if (!Dep) {
+      Dep = vm._data.__ob__.dep.constructor;
+    }
+    return Dep;
+  }
+
+  var hook = typeof window !== 'undefined' && window.__VUE_DEVTOOLS_GLOBAL_HOOK__;
+
+  function devtoolPlugin(store) {
+    if (!hook) return;
+
+    hook.emit('vuex:init', store);
+
+    hook.on('vuex:travel-to-state', function (targetState) {
+      store.replaceState(targetState);
+    });
+
+    store.subscribe(function (mutation, state) {
+      hook.emit('vuex:mutation', mutation, state);
+    });
+  }
+
+  function override (Vue) {
+    var version = Number(Vue.version.split('.')[0]);
+
+    if (version >= 2) {
+      var usesInit = Vue.config._lifecycleHooks.indexOf('init') > -1;
+      Vue.mixin(usesInit ? { init: vuexInit } : { beforeCreate: vuexInit });
+    } else {
+      (function () {
+        // override init and inject vuex init procedure
+        // for 1.x backwards compatibility.
+        var _init = Vue.prototype._init;
+        Vue.prototype._init = function () {
+          var options = arguments.length <= 0 || arguments[0] === undefined ? {} : arguments[0];
+
+          options.init = options.init ? [vuexInit].concat(options.init) : vuexInit;
+          _init.call(this, options);
+        };
+      })();
+    }
+
+    /**
+     * Vuex init hook, injected into each instances init hooks list.
+     */
+
+    function vuexInit() {
+      var options = this.$options;
+      var store = options.store;
+      var vuex = options.vuex;
+      // store injection
+
+      if (store) {
+        this.$store = store;
+      } else if (options.parent && options.parent.$store) {
+        this.$store = options.parent.$store;
+      }
+      // vuex option handling
+      if (vuex) {
+        if (!this.$store) {
+          console.warn('[vuex] store not injected. make sure to ' + 'provide the store option in your root component.');
+        }
+        var state = vuex.state;
+        var actions = vuex.actions;
+        var getters = vuex.getters;
+        // handle deprecated state option
+
+        if (state && !getters) {
+          console.warn('[vuex] vuex.state option will been deprecated in 1.0. ' + 'Use vuex.getters instead.');
+          getters = state;
+        }
+        // getters
+        if (getters) {
+          options.computed = options.computed || {};
+          for (var key in getters) {
+            defineVuexGetter(this, key, getters[key]);
+          }
+        }
+        // actions
+        if (actions) {
+          options.methods = options.methods || {};
+          for (var _key in actions) {
+            options.methods[_key] = makeBoundAction(this.$store, actions[_key], _key);
+          }
+        }
+      }
+    }
+
+    /**
+     * Setter for all getter properties.
+     */
+
+    function setter() {
+      throw new Error('vuex getter properties are read-only.');
+    }
+
+    /**
+     * Define a Vuex getter on an instance.
+     *
+     * @param {Vue} vm
+     * @param {String} key
+     * @param {Function} getter
+     */
+
+    function defineVuexGetter(vm, key, getter) {
+      if (typeof getter !== 'function') {
+        console.warn('[vuex] Getter bound to key \'vuex.getters.' + key + '\' is not a function.');
+      } else {
+        Object.defineProperty(vm, key, {
+          enumerable: true,
+          configurable: true,
+          get: makeComputedGetter(vm.$store, getter),
+          set: setter
+        });
+      }
+    }
+
+    /**
+     * Make a computed getter, using the same caching mechanism of computed
+     * properties. In addition, it is cached on the raw getter function using
+     * the store's unique cache id. This makes the same getter shared
+     * across all components use the same underlying watcher, and makes
+     * the getter evaluated only once during every flush.
+     *
+     * @param {Store} store
+     * @param {Function} getter
+     */
+
+    function makeComputedGetter(store, getter) {
+      var id = store._getterCacheId;
+
+      // cached
+      if (getter[id]) {
+        return getter[id];
+      }
+      var vm = store._vm;
+      var Watcher = getWatcher(vm);
+      var Dep = getDep(vm);
+      var watcher = new Watcher(vm, function (vm) {
+        return getter(vm.state);
+      }, null, { lazy: true });
+      var computedGetter = function computedGetter() {
+        if (watcher.dirty) {
+          watcher.evaluate();
+        }
+        if (Dep.target) {
+          watcher.depend();
+        }
+        return watcher.value;
+      };
+      getter[id] = computedGetter;
+      return computedGetter;
+    }
+
+    /**
+     * Make a bound-to-store version of a raw action function.
+     *
+     * @param {Store} store
+     * @param {Function} action
+     * @param {String} key
+     */
+
+    function makeBoundAction(store, action, key) {
+      if (typeof action !== 'function') {
+        console.warn('[vuex] Action bound to key \'vuex.actions.' + key + '\' is not a function.');
+      }
+      return function vuexBoundAction() {
+        for (var _len = arguments.length, args = Array(_len), _key2 = 0; _key2 < _len; _key2++) {
+          args[_key2] = arguments[_key2];
+        }
+
+        return action.call.apply(action, [this, store].concat(args));
+      };
+    }
+
+    // option merging
+    var merge = Vue.config.optionMergeStrategies.computed;
+    Vue.config.optionMergeStrategies.vuex = function (toVal, fromVal) {
+      if (!toVal) return fromVal;
+      if (!fromVal) return toVal;
+      return {
+        getters: merge(toVal.getters, fromVal.getters),
+        state: merge(toVal.state, fromVal.state),
+        actions: merge(toVal.actions, fromVal.actions)
+      };
+    };
+  }
+
+  var Vue = void 0;
+  var uid = 0;
+
+  var Store = function () {
+
+    /**
+     * @param {Object} options
+     *        - {Object} state
+     *        - {Object} actions
+     *        - {Object} mutations
+     *        - {Array} plugins
+     *        - {Boolean} strict
+     */
+
+    function Store() {
+      var _this = this;
+
+      var _ref = arguments.length <= 0 || arguments[0] === undefined ? {} : arguments[0];
+
+      var _ref$state = _ref.state;
+      var state = _ref$state === undefined ? {} : _ref$state;
+      var _ref$mutations = _ref.mutations;
+      var mutations = _ref$mutations === undefined ? {} : _ref$mutations;
+      var _ref$modules = _ref.modules;
+      var modules = _ref$modules === undefined ? {} : _ref$modules;
+      var _ref$plugins = _ref.plugins;
+      var plugins = _ref$plugins === undefined ? [] : _ref$plugins;
+      var _ref$strict = _ref.strict;
+      var strict = _ref$strict === undefined ? false : _ref$strict;
+      classCallCheck(this, Store);
+
+      this._getterCacheId = 'vuex_store_' + uid++;
+      this._dispatching = false;
+      this._rootMutations = this._mutations = mutations;
+      this._modules = modules;
+      this._subscribers = [];
+      // bind dispatch to self
+      var dispatch = this.dispatch;
+      this.dispatch = function () {
+        for (var _len = arguments.length, args = Array(_len), _key = 0; _key < _len; _key++) {
+          args[_key] = arguments[_key];
+        }
+
+        dispatch.apply(_this, args);
+      };
+      // use a Vue instance to store the state tree
+      // suppress warnings just in case the user has added
+      // some funky global mixins
+      if (!Vue) {
+        throw new Error('[vuex] must call Vue.use(Vuex) before creating a store instance.');
+      }
+      var silent = Vue.config.silent;
+      Vue.config.silent = true;
+      this._vm = new Vue({
+        data: {
+          state: state
+        }
+      });
+      Vue.config.silent = silent;
+      this._setupModuleState(state, modules);
+      this._setupModuleMutations(modules);
+      // add extra warnings in strict mode
+      if (strict) {
+        this._setupMutationCheck();
+      }
+      // apply plugins
+      devtoolPlugin(this);
+      plugins.forEach(function (plugin) {
+        return plugin(_this);
+      });
+    }
+
+    /**
+     * Getter for the entire state tree.
+     * Read only.
+     *
+     * @return {Object}
+     */
+
+    createClass(Store, [{
+      key: 'replaceState',
+
+
+      /**
+       * Replace root state.
+       *
+       * @param {Object} state
+       */
+
+      value: function replaceState(state) {
+        this._dispatching = true;
+        this._vm.state = state;
+        this._dispatching = false;
+      }
+
+      /**
+       * Dispatch an action.
+       *
+       * @param {String} type
+       */
+
+    }, {
+      key: 'dispatch',
+      value: function dispatch(type) {
+        var _this2 = this;
+
+        for (var _len2 = arguments.length, payload = Array(_len2 > 1 ? _len2 - 1 : 0), _key2 = 1; _key2 < _len2; _key2++) {
+          payload[_key2 - 1] = arguments[_key2];
+        }
+
+        var silent = false;
+        var isObjectStyleDispatch = false;
+        // compatibility for object actions, e.g. FSA
+        if ((typeof type === 'undefined' ? 'undefined' : _typeof(type)) === 'object' && type.type && arguments.length === 1) {
+          isObjectStyleDispatch = true;
+          payload = type;
+          if (type.silent) silent = true;
+          type = type.type;
+        }
+        var handler = this._mutations[type];
+        var state = this.state;
+        if (handler) {
+          this._dispatching = true;
+          // apply the mutation
+          if (Array.isArray(handler)) {
+            handler.forEach(function (h) {
+              isObjectStyleDispatch ? h(state, payload) : h.apply(undefined, [state].concat(toConsumableArray(payload)));
+            });
+          } else {
+            isObjectStyleDispatch ? handler(state, payload) : handler.apply(undefined, [state].concat(toConsumableArray(payload)));
+          }
+          this._dispatching = false;
+          if (!silent) {
+            (function () {
+              var mutation = isObjectStyleDispatch ? payload : { type: type, payload: payload };
+              _this2._subscribers.forEach(function (sub) {
+                return sub(mutation, state);
+              });
+            })();
+          }
+        } else {
+          console.warn('[vuex] Unknown mutation: ' + type);
+        }
+      }
+
+      /**
+       * Watch state changes on the store.
+       * Same API as Vue's $watch, except when watching a function,
+       * the function gets the state as the first argument.
+       *
+       * @param {Function} fn
+       * @param {Function} cb
+       * @param {Object} [options]
+       */
+
+    }, {
+      key: 'watch',
+      value: function watch(fn, cb, options) {
+        var _this3 = this;
+
+        if (typeof fn !== 'function') {
+          console.error('Vuex store.watch only accepts function.');
+          return;
+        }
+        return this._vm.$watch(function () {
+          return fn(_this3.state);
+        }, cb, options);
+      }
+
+      /**
+       * Subscribe to state changes. Fires after every mutation.
+       */
+
+    }, {
+      key: 'subscribe',
+      value: function subscribe(fn) {
+        var subs = this._subscribers;
+        if (subs.indexOf(fn) < 0) {
+          subs.push(fn);
+        }
+        return function () {
+          var i = subs.indexOf(fn);
+          if (i > -1) {
+            subs.splice(i, 1);
+          }
+        };
+      }
+
+      /**
+       * Hot update mutations & modules.
+       *
+       * @param {Object} options
+       *        - {Object} [mutations]
+       *        - {Object} [modules]
+       */
+
+    }, {
+      key: 'hotUpdate',
+      value: function hotUpdate() {
+        var _ref2 = arguments.length <= 0 || arguments[0] === undefined ? {} : arguments[0];
+
+        var mutations = _ref2.mutations;
+        var modules = _ref2.modules;
+
+        this._rootMutations = this._mutations = mutations || this._rootMutations;
+        this._setupModuleMutations(modules || this._modules);
+      }
+
+      /**
+       * Attach sub state tree of each module to the root tree.
+       *
+       * @param {Object} state
+       * @param {Object} modules
+       */
+
+    }, {
+      key: '_setupModuleState',
+      value: function _setupModuleState(state, modules) {
+        var _this4 = this;
+
+        if (!isObject(modules)) return;
+
+        Object.keys(modules).forEach(function (key) {
+          var module = modules[key];
+
+          // set this module's state
+          Vue.set(state, key, module.state || {});
+
+          // retrieve nested modules
+          _this4._setupModuleState(state[key], module.modules);
+        });
+      }
+
+      /**
+       * Bind mutations for each module to its sub tree and
+       * merge them all into one final mutations map.
+       *
+       * @param {Object} updatedModules
+       */
+
+    }, {
+      key: '_setupModuleMutations',
+      value: function _setupModuleMutations(updatedModules) {
+        var modules = this._modules;
+        Object.keys(updatedModules).forEach(function (key) {
+          modules[key] = updatedModules[key];
+        });
+        var updatedMutations = this._createModuleMutations(modules, []);
+        this._mutations = mergeObjects([this._rootMutations].concat(toConsumableArray(updatedMutations)));
+      }
+
+      /**
+       * Helper method for _setupModuleMutations.
+       * The method retrieve nested sub modules and
+       * bind each mutations to its sub tree recursively.
+       *
+       * @param {Object} modules
+       * @param {Array<String>} nestedKeys
+       * @return {Array<Object>}
+       */
+
+    }, {
+      key: '_createModuleMutations',
+      value: function _createModuleMutations(modules, nestedKeys) {
+        var _this5 = this;
+
+        if (!isObject(modules)) return [];
+
+        return Object.keys(modules).map(function (key) {
+          var module = modules[key];
+          var newNestedKeys = nestedKeys.concat(key);
+
+          // retrieve nested modules
+          var nestedMutations = _this5._createModuleMutations(module.modules, newNestedKeys);
+
+          if (!module || !module.mutations) {
+            return mergeObjects(nestedMutations);
+          }
+
+          // bind mutations to sub state tree
+          var mutations = {};
+          Object.keys(module.mutations).forEach(function (name) {
+            var original = module.mutations[name];
+            mutations[name] = function (state) {
+              for (var _len3 = arguments.length, args = Array(_len3 > 1 ? _len3 - 1 : 0), _key3 = 1; _key3 < _len3; _key3++) {
+                args[_key3 - 1] = arguments[_key3];
+              }
+
+              original.apply(undefined, [getNestedState(state, newNestedKeys)].concat(args));
+            };
+          });
+
+          // merge mutations of this module and nested modules
+          return mergeObjects([mutations].concat(toConsumableArray(nestedMutations)));
+        });
+      }
+
+      /**
+       * Setup mutation check: if the vuex instance's state is mutated
+       * outside of a mutation handler, we throw en error. This effectively
+       * enforces all mutations to the state to be trackable and hot-reloadble.
+       * However, this comes at a run time cost since we are doing a deep
+       * watch on the entire state tree, so it is only enalbed with the
+       * strict option is set to true.
+       */
+
+    }, {
+      key: '_setupMutationCheck',
+      value: function _setupMutationCheck() {
+        var _this6 = this;
+
+        var Watcher = getWatcher(this._vm);
+        /* eslint-disable no-new */
+        new Watcher(this._vm, 'state', function () {
+          if (!_this6._dispatching) {
+            throw new Error('[vuex] Do not mutate vuex store state outside mutation handlers.');
+          }
+        }, { deep: true, sync: true });
+        /* eslint-enable no-new */
+      }
+    }, {
+      key: 'state',
+      get: function get() {
+        return this._vm.state;
+      },
+      set: function set(v) {
+        throw new Error('[vuex] Use store.replaceState() to explicit replace store state.');
+      }
+    }]);
+    return Store;
+  }();
+
+  function install(_Vue) {
+    if (Vue) {
+      console.warn('[vuex] already installed. Vue.use(Vuex) should be called only once.');
+      return;
+    }
+    Vue = _Vue;
+    override(Vue);
+  }
+
+  // auto install in dist mode
+  if (typeof window !== 'undefined' && window.Vue) {
+    install(window.Vue);
+  }
+
+  var index = {
+    Store: Store,
+    install: install
+  };
+
+  return index;
+
+}));
+},{}],6:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
 	value: true
 });
-exports.default = {
-	props: ['newtodo'],
 
+var _todoActions = require('./todoActions');
+
+exports.default = {
 	data: function data() {
 		return {
-			tempTodo: { id: null, title: '', completed: false }
+			todo: { id: null, title: '', completed: false },
+			error: {}
 		};
 	},
 
 
 	methods: {
 		addNewTodo: function addNewTodo() {
-			this.newtodo = this.tempTodo;
-			this.tempTodo = { id: null, title: '', completed: false };
+			this.saveTodo(this.todo);
+			this.todo = { id: null, title: '', completed: false };
+		}
+	},
+
+	vuex: {
+		getters: {
+			todoStore: function todoStore(state) {
+				return state.todoStore.todos;
+			}
+		},
+		actions: {
+			saveTodo: _todoActions.saveTodo
 		}
 	}
 };
 if (module.exports.__esModule) module.exports = module.exports.default
-;(typeof module.exports === "function"? module.exports.options: module.exports).template = "\n\t<form v-on:submit.prevent=\"addNewTodo()\">\n        <div class=\"form-group\">\n          <input type=\"text\" class=\"form-control\" placeholder=\"Add new todo\" v-model=\"tempTodo.title\">\n      </div>\n      <input type=\"submit\" class=\"btn btn-success\" value=\"Add todo\">\n  </form>\n"
+;(typeof module.exports === "function"? module.exports.options: module.exports).template = "\n\t<form v-on:submit.prevent=\"addNewTodo()\">\n        <div v-bind:class=\"{'has-warning' : error.title}\" class=\"form-group\">\n          <input type=\"text\" class=\"form-control\" placeholder=\"Add new todo\" v-model=\"todo.title\">\n          \t<span class=\"help-block\" v-if=\"error.title\">{{ error.title }}</span>\n      </div>\n      <input type=\"submit\" class=\"btn btn-success\" value=\"Add todo\">\n  </form>\n"
 if (module.hot) {(function () {  module.hot.accept()
   var hotAPI = require("vue-hot-reload-api")
   hotAPI.install(require("vue"), true)
@@ -11886,41 +12562,43 @@ if (module.hot) {(function () {  module.hot.accept()
     hotAPI.update("_v-55c65990", module.exports, (typeof module.exports === "function" ? module.exports.options : module.exports).template)
   }
 })()}
-},{"vue":4,"vue-hot-reload-api":2}],6:[function(require,module,exports){
+},{"./todoActions":8,"vue":4,"vue-hot-reload-api":2}],7:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
 	value: true
 });
+
+var _todoActions = require('./todoActions');
+
 exports.default = {
 	created: function created() {
-		var _this = this;
-
-		this.$http.get('api/v1/todos').then(function (response) {
-			console.log(response);
-			if (response.status == 200) {
-				_this.todos = response.data;
-			}
-		});
-	},
-	data: function data() {
-		return {
-			todos: {}
-		};
+		this.getTodos();
 	},
 
 
 	methods: {
 		deleteTodo: function deleteTodo(todo) {
-			this.todos.$remove(todo);
+			this.deleteTodo(todo);
 		},
 		todoCompleted: function todoCompleted(todo) {
-			todo.completed = !todo.completed;
+			this.updateTodo(todo);
+		}
+	},
+
+	vuex: {
+		getters: {
+			todoStore: function todoStore(state) {
+				return state.todoStore.todos;
+			}
+		},
+		actions: {
+			getTodos: _todoActions.getTodos, deleteTodo: _todoActions.deleteTodo, updateTodo: _todoActions.updateTodo
 		}
 	}
 };
 if (module.exports.__esModule) module.exports = module.exports.default
-;(typeof module.exports === "function"? module.exports.options: module.exports).template = "\n\t<ul class=\"list-group\">\n\t\t<li class=\"list-group-item\" v-bind:class=\"{'completed': todo.completed }\" v-for=\"todo in todos | orderBy 'title' 1\">\n\t\t{{ todo.title }}\n\t\t<button class=\"btn btn-danger btn-xs pull-right\" v-on:click=\"deleteTodo(todo)\">delete</button>\n\t\t<button class=\"btn btn-xs pull-right margin-right-10\" v-bind:class=\"{'btn-success' : todo.completed, 'btn-warning' : !todo.completed}\" v-on:click=\"todoCompleted(todo)\">{{ todo.completed ? 'Completed' : 'Pending' }}</button>\n\t</li>\n</ul>\n"
+;(typeof module.exports === "function"? module.exports.options: module.exports).template = "\n\t<ul class=\"list-group\">\n\t\t<li class=\"list-group-item\" v-bind:class=\"{'completed': todo.completed }\" v-for=\"todo in todoStore | orderBy 'title' 1\">\n\t\t{{ todo.title }}\n\t\t<button class=\"btn btn-danger btn-xs pull-right\" v-on:click=\"deleteTodo(todo)\">delete</button>\n\t\t<button class=\"btn btn-xs pull-right margin-right-10\" v-bind:class=\"{'btn-success' : todo.completed, 'btn-warning' : !todo.completed}\" v-on:click=\"todoCompleted(todo)\">{{ todo.completed ? 'Completed' : 'Pending' }}</button>\n\t</li>\n</ul>\n"
 if (module.hot) {(function () {  module.hot.accept()
   var hotAPI = require("vue-hot-reload-api")
   hotAPI.install(require("vue"), true)
@@ -11931,12 +12609,103 @@ if (module.hot) {(function () {  module.hot.accept()
     hotAPI.update("_v-9ebfa8ea", module.exports, (typeof module.exports === "function" ? module.exports.options : module.exports).template)
   }
 })()}
-},{"vue":4,"vue-hot-reload-api":2}],7:[function(require,module,exports){
+},{"./todoActions":8,"vue":4,"vue-hot-reload-api":2}],8:[function(require,module,exports){
+'use strict';
+
+Object.defineProperty(exports, "__esModule", {
+	value: true
+});
+var getTodos = exports.getTodos = function getTodos(store) {
+
+	this.$http.get('api/v1/todos').then(function (response) {
+		var dispatch = store.dispatch;
+		dispatch('GET_TODOS', response.data);
+	});
+};
+
+var saveTodo = exports.saveTodo = function saveTodo(store, postData) {
+	var _this = this;
+
+	this.$http.post('api/v1/todo', postData).then(function (response) {
+		if (response.status == 201) {
+			var dispatch = store.dispatch;
+			dispatch('ADD_TODO', response.data);
+		}
+	}).catch(function (err) {
+		console.log(err);
+		if (err.status == 422) {
+			_this.error = err.data;
+		}
+	});
+};
+
+var deleteTodo = exports.deleteTodo = function deleteTodo(store, todo) {
+	var postData = { id: todo.id };
+	this.$http.post('api/v1/todo-delete', postData).then(function (response) {
+		if (response.status == 200) {
+			var dispatch = store.dispatch;
+			dispatch('DELETE_TODO', todo);
+		}
+	}).catch(function (err) {
+		console.log(err);
+	});
+};
+
+var updateTodo = exports.updateTodo = function updateTodo(store, todo) {
+	var postData = { id: todo.id };
+	this.$http.post('api/v1/todo-status', postData).then(function (response) {
+		if (response.status == 200) {
+			var dispatch = store.dispatch;
+			dispatch('UPDATE_TODO', todo);
+		}
+	}).catch(function (err) {
+		console.log(err);
+	});
+};
+
+},{}],9:[function(require,module,exports){
+"use strict";
+
+Object.defineProperty(exports, "__esModule", {
+	value: true
+});
+var state = {
+	todos: []
+};
+
+var mutations = {
+	GET_TODOS: function GET_TODOS(state, todos) {
+		state.todos = todos;
+	},
+	ADD_TODO: function ADD_TODO(state, todo) {
+		state.todos.push(todo);
+	},
+	DELETE_TODO: function DELETE_TODO(state, todo) {
+		state.todos.$remove(todo);
+	},
+	UPDATE_TODO: function UPDATE_TODO(state, todo) {
+		todo.completed = !todo.completed;
+	}
+};
+
+exports.default = {
+	state: state, mutations: mutations
+};
+
+},{}],10:[function(require,module,exports){
 'use strict';
 
 var _vue = require('vue');
 
 var _vue2 = _interopRequireDefault(_vue);
+
+var _vueResource = require('vue-resource');
+
+var _vueResource2 = _interopRequireDefault(_vueResource);
+
+var _store = require('./vuex/store');
+
+var _store2 = _interopRequireDefault(_store);
 
 var _TodoItems = require('./components/Todo/TodoItems.vue');
 
@@ -11945,10 +12714,6 @@ var _TodoItems2 = _interopRequireDefault(_TodoItems);
 var _TodoAddForm = require('./components/Todo/TodoAddForm.vue');
 
 var _TodoAddForm2 = _interopRequireDefault(_TodoAddForm);
-
-var _vueResource = require('vue-resource');
-
-var _vueResource2 = _interopRequireDefault(_vueResource);
 
 function _interopRequireDefault(obj) {
   return obj && obj.__esModule ? obj : { default: obj };
@@ -11959,24 +12724,51 @@ _vue2.default.use(_vueResource2.default);
 _vue2.default.component('todo-item', _TodoItems2.default);
 _vue2.default.component('todo-add-form', _TodoAddForm2.default);
 
+_vue2.default.http.headers.common['X-CSRF-TOKEN'] = document.querySelector("meta[name=csrf-token]").getAttribute('content');
+
 new _vue2.default({
   el: '#vue-app',
-  data: {
-    newTodo: {}
 
-  },
-
-  watch: {
-    newTodo: function newTodo(newvalue, oldvalue) {
-      this.todos.push({
-        id: Math.floor(Date.now()),
-        title: newvalue.title,
-        completed: false
-      });
-    }
-  }
+  store: _store2.default
 });
 
-},{"./components/Todo/TodoAddForm.vue":5,"./components/Todo/TodoItems.vue":6,"vue":4,"vue-resource":3}]},{},[7]);
+},{"./components/Todo/TodoAddForm.vue":6,"./components/Todo/TodoItems.vue":7,"./vuex/store":11,"vue":4,"vue-resource":3}],11:[function(require,module,exports){
+(function (process){
+'use strict';
+
+Object.defineProperty(exports, "__esModule", {
+	value: true
+});
+
+var _vue = require('vue');
+
+var _vue2 = _interopRequireDefault(_vue);
+
+var _vuex = require('vuex');
+
+var _vuex2 = _interopRequireDefault(_vuex);
+
+var _todoStore = require('./../components/Todo/todoStore');
+
+var _todoStore2 = _interopRequireDefault(_todoStore);
+
+function _interopRequireDefault(obj) {
+	return obj && obj.__esModule ? obj : { default: obj };
+}
+
+_vue2.default.use(_vuex2.default);
+_vue2.default.config.debug = true;
+
+var debug = process.env.NODE_ENV !== 'production';
+
+exports.default = new _vuex2.default.Store({
+	modules: {
+		todoStore: _todoStore2.default
+	},
+	strict: debug
+});
+
+}).call(this,require('_process'))
+},{"./../components/Todo/todoStore":9,"_process":1,"vue":4,"vuex":5}]},{},[10]);
 
 //# sourceMappingURL=main.js.map

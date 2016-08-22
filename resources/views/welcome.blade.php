@@ -2,7 +2,7 @@
 <html>
 <head>
     <title>Laravel</title>
-
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <link rel="stylesheet" href="{{ url('css/app.css') }}">
     
 </head>
@@ -12,7 +12,7 @@
         <div class="row">
             <div class="col-sm-12">
                 @include('partials/top-menu')
-                <h1>Welcome to Vue.js edited</h1>
+                <h1>Welcome to Vue.js</h1>
             </div>
         </div>
         <div class="row">
@@ -22,8 +22,8 @@
                     <div class="panel-heading">My Todos</div>
                     <div class="panel-body">
                         {{-- Body content start --}}
-                        <todo-item ></todo-item>
-                        <todo-add-form :newtodo.sync="newTodo"></todo-add-form>
+                        <todo-item></todo-item>
+                        <todo-add-form></todo-add-form>
                         {{-- Body content end --}}
                     </div>
                 </div>

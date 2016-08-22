@@ -1,29 +1,27 @@
 <script type="text/javascript">
+	import {getTodos, deleteTodo, updateTodo} from './todoActions';
 	export default {
 
-		created(){
-			this.$http.get('api/v1/todos').then((response) => {
-				console.log(response);
-				if(response.status == 200)
-				{
-					this.todos = response.data;
-				}
-			});
-		},
-
-		data(){
-			return {
-				todos: {}
-			}
+		created() {
+			this.getTodos();
 		},
 
 		methods: {
 			deleteTodo(todo){
-				this.todos.$remove(todo);
+				this.deleteTodo(todo);
 			},
 
 			todoCompleted(todo){
-				todo.completed = !todo.completed;
+				this.updateTodo(todo);
+			}
+		},
+
+		vuex: {
+			getters: {
+				todoStore: state => state.todoStore.todos
+			},
+			actions: {
+				getTodos, deleteTodo, updateTodo
 			}
 		}
 	}
@@ -34,7 +32,7 @@
 		<li 
 		class="list-group-item" 
 		v-bind:class="{'completed': todo.completed }"
-		v-for="todo in todos | orderBy 'title' 1">
+		v-for="todo in todoStore | orderBy 'title' 1">
 		{{ todo.title }}
 		<button class="btn btn-danger btn-xs pull-right" v-on:click="deleteTodo(todo)">delete</button>
 		<button 
